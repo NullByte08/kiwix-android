@@ -21,8 +21,6 @@ package org.kiwix.kiwixmobile.core.main;
 import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.content.Context;
-import android.graphics.ColorMatrixColorFilter;
-import android.graphics.Paint;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Environment;
@@ -36,21 +34,19 @@ import android.view.ViewGroup;
 import android.webkit.WebSettings;
 import android.widget.Toast;
 import com.cprcrack.videowebview.VideoEnabledWebView;
+import io.reactivex.disposables.CompositeDisposable;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import javax.inject.Inject;
-import org.jetbrains.annotations.NotNull;
 import org.kiwix.kiwixmobile.core.BuildConfig;
 import org.kiwix.kiwixmobile.core.CoreApp;
 import org.kiwix.kiwixmobile.core.R;
 import org.kiwix.kiwixmobile.core.reader.ZimReaderContainer;
 import org.kiwix.kiwixmobile.core.utils.LanguageUtils;
 import org.kiwix.kiwixmobile.core.utils.SharedPreferenceUtil;
-
-import static org.kiwix.kiwixmobile.core.main.CoreMainActivity.HOME_URL;
 
 @SuppressLint("ViewConstructor")
 public class KiwixWebView extends VideoEnabledWebView {
@@ -60,19 +56,17 @@ public class KiwixWebView extends VideoEnabledWebView {
     0, 0, -1.0f, 0, 255, // blue
     0, 0, 0, 1.0f, 0 // alpha
   };
-  private final ViewGroup videoView;
   @Inject
   SharedPreferenceUtil sharedPreferenceUtil;
   @Inject
   ZimReaderContainer zimReaderContainer;
   private final WebViewCallback callback;
-  private final Paint invertedPaint = createInvertedPaint();
+  private CompositeDisposable compositeDisposable = new CompositeDisposable();
 
   @SuppressLint("SetJavaScriptEnabled")
   public KiwixWebView(Context context, WebViewCallback callback, AttributeSet attrs,
     ViewGroup nonVideoView, ViewGroup videoView, CoreWebViewClient webViewClient) {
     super(context, attrs);
-    this.videoView = videoView;
     if (BuildConfig.DEBUG == true && Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
       setWebContentsDebuggingEnabled(true);
     }
@@ -83,6 +77,11 @@ public class KiwixWebView extends VideoEnabledWebView {
     settings.setUserAgentString(LanguageUtils.getCurrentLocale(context).toString());
     settings.setDomStorageEnabled(true);
     settings.setJavaScriptEnabled(true);
+    settings.setLoadWithOverviewMode(true);
+    settings.setUseWideViewPort(true);
+    setInitialScale(100);
+    settings.setBuiltInZoomControls(true);
+    settings.setDisplayZoomControls(false);
     clearCache(true);
     settings.setAllowUniversalAccessFromFileURLs(true);
     setWebViewClient(webViewClient);
@@ -95,38 +94,6 @@ public class KiwixWebView extends VideoEnabledWebView {
 
   private void setWindowVisibility(int systemUiVisibility) {
     ((Activity) getContext()).getWindow().getDecorView().setSystemUiVisibility(systemUiVisibility);
-  }
-
-  public void loadPrefs() {
-    disableZoomControls();
-    boolean zoomEnabled = sharedPreferenceUtil.getPrefZoomEnabled();
-
-    if (zoomEnabled) {
-      int zoomScale = (int) sharedPreferenceUtil.getPrefZoom();
-      setInitialScale(zoomScale);
-    } else {
-      setInitialScale(0);
-    }
-  }
-
-  public void deactivateNightMode() {
-    setLayerType(LAYER_TYPE_NONE, null);
-    videoView.setLayerType(LAYER_TYPE_NONE, null);
-  }
-
-  public void activateNightMode() {
-    if (getUrl() != null && getUrl().equals(HOME_URL)) {
-      return;
-    }
-    setLayerType(LAYER_TYPE_HARDWARE, invertedPaint);
-    videoView.setLayerType(LAYER_TYPE_HARDWARE, invertedPaint);
-  }
-
-  @NotNull private Paint createInvertedPaint() {
-    Paint paint = new Paint();
-    ColorMatrixColorFilter filterInvert = new ColorMatrixColorFilter(NIGHT_MODE_COLORS);
-    paint.setColorFilter(filterInvert);
-    return paint;
   }
 
   @Override
@@ -149,11 +116,24 @@ public class KiwixWebView extends VideoEnabledWebView {
       || result.getType() == HitTestResult.SRC_IMAGE_ANCHOR_TYPE) {
       MenuItem saveMenu = menu.add(0, 1, 0, getResources().getString(R.string.save_media));
       saveMenu.setOnMenuItemClickListener(item -> {
-        Message msg = new SaveHandler().obtainMessage();
+        Message msg = new SaveHandler(zimReaderContainer).obtainMessage();
         requestFocusNodeHref(msg);
         return true;
       });
     }
+  }
+
+  @Override protected void onAttachedToWindow() {
+    super.onAttachedToWindow();
+    compositeDisposable.add(
+      sharedPreferenceUtil.getTextZooms()
+        .subscribe(textZoom -> getSettings().setTextZoom(textZoom))
+    );
+  }
+
+  @Override protected void onDetachedFromWindow() {
+    super.onDetachedFromWindow();
+    compositeDisposable.clear();
   }
 
   @Override
@@ -171,12 +151,13 @@ public class KiwixWebView extends VideoEnabledWebView {
     callback.webViewPageChanged(page, pages);
   }
 
-  public void disableZoomControls() {
-    getSettings().setBuiltInZoomControls(true);
-    getSettings().setDisplayZoomControls(false);
-  }
-
   static class SaveHandler extends Handler {
+    private final ZimReaderContainer zimReaderContainer;
+
+    public SaveHandler(ZimReaderContainer zimReaderContainer) {
+      this.zimReaderContainer = zimReaderContainer;
+    }
+
     private String getDecodedFileName(String url, String src) {
       String fileName = "";
       if (url != null) {
@@ -189,7 +170,7 @@ public class KiwixWebView extends VideoEnabledWebView {
       return fileName.substring(fileName.indexOf("%3A") + 1);
     }
 
-    @SuppressLint("StringFormatInvalid") @Override
+    @Override
     public void handleMessage(Message msg) {
       String url = (String) msg.getData().get("url");
       String src = (String) msg.getData().get("src");
@@ -217,7 +198,7 @@ public class KiwixWebView extends VideoEnabledWebView {
 
         try {
           InputStream input =
-            CoreApp.getInstance().getContentResolver().openInputStream(source);
+            zimReaderContainer.load(source.toString()).getData();
           OutputStream output = new FileOutputStream(storageDir);
 
           byte[] buffer = new byte[1024];

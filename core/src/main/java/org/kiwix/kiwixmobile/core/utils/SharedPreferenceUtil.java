@@ -46,8 +46,6 @@ public class SharedPreferenceUtil {
   public static final String PREF_STORAGE = "pref_select_folder";
   public static final String PREF_WIFI_ONLY = "pref_wifi_only";
   public static final String PREF_KIWIX_MOBILE = "kiwix-mobile";
-  public static final String PREF_ZOOM = "pref_zoom_slider";
-  public static final String PREF_ZOOM_ENABLED = "pref_zoom_enabled";
   public static final String PREF_SHOW_INTRO = "showIntro";
   private static final String PREF_BACK_TO_TOP = "pref_backtotop";
   private static final String PREF_HIDE_TOOLBAR = "pref_hidetoolbar";
@@ -56,12 +54,14 @@ public class SharedPreferenceUtil {
   private static final String PREF_STORAGE_TITLE = "pref_selected_title";
   private static final String PREF_EXTERNAL_LINK_POPUP = "pref_external_link_popup";
   private static final String PREF_IS_FIRST_RUN = "isFirstRun";
-  private static final String PREF_SHOW_BOOKMARKS_CURRENT_BOOK = "show_bookmarks_current_book";
-  private static final String PREF_SHOW_HISTORY_CURRENT_BOOK = "show_history_current_book";
+  private static final String PREF_SHOW_BOOKMARKS_ALL_BOOKS = "show_bookmarks_current_book";
+  private static final String PREF_SHOW_HISTORY_ALL_BOOKS = "show_history_current_book";
   private static final String PREF_HOSTED_BOOKS = "hosted_books";
   public static final String PREF_NIGHT_MODE = "pref_night_mode";
+  private static final String TEXT_ZOOM = "true_text_zoom";
   private SharedPreferences sharedPreferences;
   private final PublishProcessor<String> prefStorages = PublishProcessor.create();
+  private final PublishProcessor<Integer> textZooms = PublishProcessor.create();
   private final PublishProcessor<NightModeConfig.Mode> nightModes = PublishProcessor.create();
 
   @Inject
@@ -89,10 +89,6 @@ public class SharedPreferenceUtil {
     return sharedPreferences.getBoolean(PREF_BACK_TO_TOP, false);
   }
 
-  public boolean getPrefZoomEnabled() {
-    return sharedPreferences.getBoolean(PREF_ZOOM_ENABLED, false);
-  }
-
   public boolean getPrefNewTabBackground() {
     return sharedPreferences.getBoolean(PREF_NEW_TAB_BACKGROUND, false);
   }
@@ -101,33 +97,31 @@ public class SharedPreferenceUtil {
     return sharedPreferences.getBoolean(PREF_EXTERNAL_LINK_POPUP, true);
   }
 
-  public float getPrefZoom() {
-    return sharedPreferences.getFloat(PREF_ZOOM, 100.0f);
-  }
-
   public String getPrefLanguage() {
     return sharedPreferences.getString(PREF_LANG, Locale.ROOT.toString());
   }
 
   public String getPrefStorage() {
-    String storage = sharedPreferences.getString(PREF_STORAGE, null);
+    final String storage = sharedPreferences.getString(PREF_STORAGE, null);
     if (storage == null) {
-      final File externalFilesDir =
-        ContextCompat.getExternalFilesDirs(CoreApp.getInstance(), null)[0];
-      storage = externalFilesDir != null ? externalFilesDir.getPath()
-        : CoreApp.getInstance().getFilesDir().getPath(); // workaround for emulators
-      putPrefStorage(storage);
+      final String defaultStorage = defaultStorage();
+      putPrefStorage(defaultStorage);
+      return defaultStorage;
+    } else if (!new File(storage).exists()) {
+      return defaultStorage();
     }
     return storage;
   }
 
-  public String getPrefStorageTitle(String defaultTitle) {
-    return sharedPreferences.getString(PREF_STORAGE_TITLE, defaultTitle);
+  private String defaultStorage() {
+    final File externalFilesDir =
+      ContextCompat.getExternalFilesDirs(CoreApp.getInstance(), null)[0];
+    return externalFilesDir != null ? externalFilesDir.getPath()
+      : CoreApp.getInstance().getFilesDir().getPath(); // workaround for emulators
   }
 
-  public boolean getPrefFullTextSearch() {
-    return false; // Temporarily disable multizim for 2.4
-    //return sharedPreferences.getBoolean(PREF_FULL_TEXT_SEARCH, false);
+  public String getPrefStorageTitle(String defaultTitle) {
+    return sharedPreferences.getString(PREF_STORAGE_TITLE, defaultTitle);
   }
 
   public void putPrefLanguage(String language) {
@@ -171,23 +165,23 @@ public class SharedPreferenceUtil {
     sharedPreferences.edit().putBoolean(PREF_SHOW_INTRO, false).apply();
   }
 
-  public boolean getShowHistoryCurrentBook() {
-    return sharedPreferences.getBoolean(PREF_SHOW_HISTORY_CURRENT_BOOK, true);
+  public boolean getShowHistoryAllBooks() {
+    return sharedPreferences.getBoolean(PREF_SHOW_HISTORY_ALL_BOOKS, true);
   }
 
-  public void setShowHistoryCurrentBook(boolean prefShowHistoryCurrentBook) {
+  public void setShowHistoryAllBooks(boolean prefShowHistoryAllBooks) {
     sharedPreferences.edit()
-      .putBoolean(PREF_SHOW_HISTORY_CURRENT_BOOK, prefShowHistoryCurrentBook)
+      .putBoolean(PREF_SHOW_HISTORY_ALL_BOOKS, prefShowHistoryAllBooks)
       .apply();
   }
 
-  public boolean getShowBookmarksCurrentBook() {
-    return sharedPreferences.getBoolean(PREF_SHOW_BOOKMARKS_CURRENT_BOOK, true);
+  public boolean getShowBookmarksAllBooks() {
+    return sharedPreferences.getBoolean(PREF_SHOW_BOOKMARKS_ALL_BOOKS, true);
   }
 
-  public void setShowBookmarksCurrentBook(boolean prefShowBookmarksFromCurrentBook) {
+  public void setShowBookmarksAllBooks(boolean prefShowBookmarksFromCurrentBook) {
     sharedPreferences.edit()
-      .putBoolean(PREF_SHOW_BOOKMARKS_CURRENT_BOOK, prefShowBookmarksFromCurrentBook)
+      .putBoolean(PREF_SHOW_BOOKMARKS_ALL_BOOKS, prefShowBookmarksFromCurrentBook)
       .apply();
   }
 
@@ -219,5 +213,18 @@ public class SharedPreferenceUtil {
     sharedPreferences.edit()
       .putStringSet(PREF_HOSTED_BOOKS, hostedBooks)
       .apply();
+  }
+
+  public void setTextZoom(int textZoom) {
+    sharedPreferences.edit().putInt(TEXT_ZOOM, textZoom).apply();
+    textZooms.offer(textZoom);
+  }
+
+  public int getTextZoom() {
+    return sharedPreferences.getInt(TEXT_ZOOM, 100);
+  }
+
+  public Flowable<Integer> getTextZooms() {
+    return textZooms.startWith(getTextZoom());
   }
 }

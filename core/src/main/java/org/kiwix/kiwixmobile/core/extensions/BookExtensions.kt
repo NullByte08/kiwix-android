@@ -42,10 +42,10 @@ fun Book.buildSearchableText(bookUtils: BookUtils): String =
     append("|")
     append(description)
     append("|")
-    append(NetworkUtils.parseURL(CoreApp.getInstance(), url))
+    append(NetworkUtils.parseURL(CoreApp.instance, url))
     append("|")
     if (bookUtils.localeMap.containsKey(language)) {
-      append(bookUtils.localeMap[language]!!.displayLanguage)
+      append(bookUtils.localeMap[language]?.displayLanguage)
       append("|")
     }
   }.toString()

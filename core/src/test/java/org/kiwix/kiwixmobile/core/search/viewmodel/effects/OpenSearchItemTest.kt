@@ -27,7 +27,8 @@ import io.mockk.mockkConstructor
 import io.mockk.verify
 import org.junit.jupiter.api.Test
 import org.kiwix.kiwixmobile.core.search.adapter.SearchListItem.RecentSearchListItem
-import org.kiwix.kiwixmobile.core.utils.Constants
+import org.kiwix.kiwixmobile.core.utils.TAG_FILE_SEARCHED
+import org.kiwix.kiwixmobile.core.utils.TAG_FILE_SEARCHED_NEW_TAB
 
 internal class OpenSearchItemTest {
 
@@ -38,9 +39,27 @@ internal class OpenSearchItemTest {
     mockkConstructor(Intent::class)
     val intent = mockk<Intent>()
     every {
-      anyConstructed<Intent>().putExtra(Constants.TAG_FILE_SEARCHED, searchListItem.value)
+      anyConstructed<Intent>().putExtra(TAG_FILE_SEARCHED, searchListItem.value)
+        .putExtra(TAG_FILE_SEARCHED_NEW_TAB, false)
     } returns intent
-    OpenSearchItem(searchListItem).invokeWith(activity)
+    OpenSearchItem(searchListItem, false).invokeWith(activity)
+    verify {
+      activity.setResult(Activity.RESULT_OK, intent)
+      activity.finish()
+    }
+  }
+
+  @Test
+  fun `invoke with returns an Ok Result with list item value for new tab`() {
+    val searchListItem = RecentSearchListItem("")
+    val activity: AppCompatActivity = mockk()
+    mockkConstructor(Intent::class)
+    val intent = mockk<Intent>()
+    every {
+      anyConstructed<Intent>().putExtra(TAG_FILE_SEARCHED, searchListItem.value)
+        .putExtra(TAG_FILE_SEARCHED_NEW_TAB, true)
+    } returns intent
+    OpenSearchItem(searchListItem, true).invokeWith(activity)
     verify {
       activity.setResult(Activity.RESULT_OK, intent)
       activity.finish()

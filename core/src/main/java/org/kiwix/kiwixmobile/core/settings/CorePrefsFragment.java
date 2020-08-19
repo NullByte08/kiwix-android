@@ -24,17 +24,15 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.os.Bundle;
-import android.preference.EditTextPreference;
-import android.preference.ListPreference;
-import android.preference.Preference;
-import android.preference.PreferenceFragment;
-import android.preference.PreferenceScreen;
 import android.view.LayoutInflater;
 import android.webkit.WebView;
-import android.widget.BaseAdapter;
-import android.widget.Toast;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
+import androidx.preference.EditTextPreference;
+import androidx.preference.ListPreference;
+import androidx.preference.Preference;
+import androidx.preference.PreferenceFragmentCompat;
+import com.google.android.material.snackbar.Snackbar;
 import eu.mhutti1.utils.storage.StorageDevice;
 import eu.mhutti1.utils.storage.StorageSelectDialog;
 import java.io.File;
@@ -47,20 +45,17 @@ import org.jetbrains.annotations.NotNull;
 import org.kiwix.kiwixmobile.core.CoreApp;
 import org.kiwix.kiwixmobile.core.NightModeConfig;
 import org.kiwix.kiwixmobile.core.R;
-import org.kiwix.kiwixmobile.core.extensions.ContextExtensionsKt;
 import org.kiwix.kiwixmobile.core.main.AddNoteDialog;
 import org.kiwix.kiwixmobile.core.utils.DialogShower;
 import org.kiwix.kiwixmobile.core.utils.KiwixDialog;
 import org.kiwix.kiwixmobile.core.utils.LanguageUtils;
 import org.kiwix.kiwixmobile.core.utils.SharedPreferenceUtil;
 
-import static org.kiwix.kiwixmobile.core.utils.Constants.RESULT_RESTART;
+import static org.kiwix.kiwixmobile.core.utils.ConstantsKt.RESULT_RESTART;
 import static org.kiwix.kiwixmobile.core.utils.SharedPreferenceUtil.PREF_NIGHT_MODE;
 import static org.kiwix.kiwixmobile.core.utils.SharedPreferenceUtil.PREF_STORAGE;
-import static org.kiwix.kiwixmobile.core.utils.SharedPreferenceUtil.PREF_ZOOM;
-import static org.kiwix.kiwixmobile.core.utils.SharedPreferenceUtil.PREF_ZOOM_ENABLED;
 
-public abstract class CorePrefsFragment extends PreferenceFragment implements
+public abstract class CorePrefsFragment extends PreferenceFragmentCompat implements
   SettingsContract.View,
   SharedPreferences.OnSharedPreferenceChangeListener {
 
@@ -68,6 +63,9 @@ public abstract class CorePrefsFragment extends PreferenceFragment implements
   public static final String PREF_CLEAR_ALL_HISTORY = "pref_clear_all_history";
   public static final String PREF_CLEAR_ALL_NOTES = "pref_clear_all_notes";
   public static final String PREF_CREDITS = "pref_credits";
+  private static final int ZOOM_OFFSET = 2;
+  private static final int ZOOM_SCALE = 25;
+  private static final String INTERNAL_TEXT_ZOOM = "text_zoom";
   @Inject
   SettingsPresenter presenter;
   @Inject
@@ -78,33 +76,38 @@ public abstract class CorePrefsFragment extends PreferenceFragment implements
   protected NightModeConfig nightModeConfig;
   @Inject
   protected DialogShower alertDialogShower;
-  private SliderPreference mSlider;
 
   @Override
-  public void onCreate(Bundle savedInstanceState) {
+  public void onCreatePreferences(Bundle savedInstanceState, String rootKey) {
     CoreApp.getCoreComponent()
       .activityComponentBuilder()
       .activity(getActivity())
       .build()
       .inject(this);
-    super.onCreate(savedInstanceState);
     addPreferencesFromResource(R.xml.preferences);
-
-    mSlider = (SliderPreference) findPreference(PREF_ZOOM);
-    setSliderState();
     setStorage();
     setUpSettings();
+    setupZoom();
     new LanguageUtils(getActivity()).changeFont(getActivity().getLayoutInflater(),
       sharedPreferenceUtil);
   }
 
-  protected abstract void setStorage();
-
-  private void setSliderState() {
-    boolean enabled = getPreferenceManager().getSharedPreferences().getBoolean(
-      PREF_ZOOM_ENABLED, false);
-    mSlider.setEnabled(enabled);
+  private void setupZoom() {
+    final Preference textZoom = findPreference(INTERNAL_TEXT_ZOOM);
+    textZoom.setOnPreferenceChangeListener(
+      (preference, newValue) -> {
+        sharedPreferenceUtil.setTextZoom((((Integer) newValue) + ZOOM_OFFSET) * ZOOM_SCALE);
+        updateTextZoomSummary(textZoom);
+        return true;
+      });
+    updateTextZoomSummary(textZoom);
   }
+
+  private void updateTextZoomSummary(Preference textZoom) {
+    textZoom.setSummary(getString(R.string.percentage, sharedPreferenceUtil.getTextZoom()));
+  }
+
+  protected abstract void setStorage();
 
   @Override
   public void onResume() {
@@ -125,7 +128,7 @@ public abstract class CorePrefsFragment extends PreferenceFragment implements
   }
 
   protected void setUpLanguageChooser(String preferenceId) {
-    ListPreference languagePref = (ListPreference) findPreference(preferenceId);
+    ListPreference languagePref = findPreference(preferenceId);
     List<String> languageCodeList = new LanguageUtils(getActivity()).getKeys();
     languageCodeList.add(0, Locale.ROOT.getLanguage());
     final String selectedLang =
@@ -167,7 +170,7 @@ public abstract class CorePrefsFragment extends PreferenceFragment implements
   }
 
   private void setAppVersionNumber() {
-    EditTextPreference versionPref = (EditTextPreference) findPreference(PREF_VERSION);
+    EditTextPreference versionPref = findPreference(PREF_VERSION);
     versionPref.setSummary(getVersionName() + " Build: " + getVersionCode());
   }
 
@@ -191,13 +194,6 @@ public abstract class CorePrefsFragment extends PreferenceFragment implements
 
   @Override
   public void onSharedPreferenceChanged(SharedPreferences sharedPreferences, String key) {
-    if (key.equals(PREF_ZOOM_ENABLED)) {
-      setSliderState();
-    }
-    if (key.equals(PREF_ZOOM)) {
-      mSlider.setSummary(mSlider.getSummary());
-      ((BaseAdapter) getPreferenceScreen().getRootAdapter()).notifyDataSetChanged();
-    }
     if (key.equals(PREF_NIGHT_MODE)) {
       sharedPreferenceUtil.updateNightMode();
       restartActivity();
@@ -208,8 +204,7 @@ public abstract class CorePrefsFragment extends PreferenceFragment implements
     alertDialogShower.show(KiwixDialog.ClearAllHistory.INSTANCE, () -> {
       presenter.clearHistory();
       CoreSettingsActivity.allHistoryCleared = true;
-      ContextExtensionsKt.toast(getActivity(), R.string.all_history_cleared_toast,
-        Toast.LENGTH_SHORT);
+      Snackbar.make(getView(), R.string.all_history_cleared, Snackbar.LENGTH_SHORT).show();
       return Unit.INSTANCE;
     });
   }
@@ -226,19 +221,17 @@ public abstract class CorePrefsFragment extends PreferenceFragment implements
       if (ContextCompat.checkSelfPermission(getActivity(),
         Manifest.permission.WRITE_EXTERNAL_STORAGE)
         != PackageManager.PERMISSION_GRANTED) {
-        ContextExtensionsKt.toast(getActivity(), R.string.ext_storage_permission_not_granted,
-          Toast.LENGTH_LONG);
+        Snackbar.make(getView(), R.string.ext_storage_permission_not_granted, Snackbar.LENGTH_SHORT)
+          .show();
         return;
       }
 
       if (FilesKt.deleteRecursively(new File(AddNoteDialog.NOTES_DIRECTORY))) {
-        ContextExtensionsKt.toast(getActivity(), R.string.notes_deletion_successful,
-          Toast.LENGTH_SHORT);
+        Snackbar.make(getView(), R.string.notes_deletion_successful, Snackbar.LENGTH_SHORT).show();
         return;
       }
     }
-    ContextExtensionsKt.toast(getActivity(), R.string.notes_deletion_unsuccessful,
-      Toast.LENGTH_SHORT);
+    Snackbar.make(getView(), R.string.notes_deletion_unsuccessful, Snackbar.LENGTH_SHORT).show();
   }
 
   @SuppressLint("SetJavaScriptEnabled")
@@ -253,9 +246,7 @@ public abstract class CorePrefsFragment extends PreferenceFragment implements
     alertDialogShower.show(new KiwixDialog.OpenCredits(() -> view));
   }
 
-  @Override
-  public boolean onPreferenceTreeClick(PreferenceScreen preferenceScreen,
-    Preference preference) {
+  @Override public boolean onPreferenceTreeClick(Preference preference) {
     if (preference.getKey().equalsIgnoreCase(PREF_CLEAR_ALL_HISTORY)) {
       clearAllHistoryDialog();
     }

@@ -19,12 +19,14 @@
 package org.kiwix.kiwixmobile.core.error;
 
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
-import android.os.Environment;
+import android.util.Log;
 import android.widget.Button;
 import android.widget.CheckBox;
+import androidx.core.content.ContextCompat;
 import androidx.core.content.FileProvider;
 import butterknife.BindView;
 import java.io.File;
@@ -32,6 +34,7 @@ import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.util.List;
 import javax.inject.Inject;
+import org.jetbrains.annotations.NotNull;
 import org.kiwix.kiwixmobile.core.R;
 import org.kiwix.kiwixmobile.core.R2;
 import org.kiwix.kiwixmobile.core.base.BaseActivity;
@@ -39,16 +42,26 @@ import org.kiwix.kiwixmobile.core.dao.NewBookDao;
 import org.kiwix.kiwixmobile.core.di.components.CoreComponent;
 import org.kiwix.kiwixmobile.core.entity.LibraryNetworkEntity;
 import org.kiwix.kiwixmobile.core.reader.ZimReaderContainer;
+import org.kiwix.kiwixmobile.core.utils.files.FileLogger;
 import org.kiwix.kiwixmobile.core.zim_manager.fileselect_view.adapter.BooksOnDiskListItem.BookOnDisk;
+import org.kiwix.kiwixmobile.zim_manager.MountInfo;
+import org.kiwix.kiwixmobile.zim_manager.MountPointProducer;
 
+import static androidx.core.content.FileProvider.getUriForFile;
 import static org.kiwix.kiwixmobile.core.utils.LanguageUtils.getCurrentLocale;
 
 public class ErrorActivity extends BaseActivity {
+
+  public static final String EXCEPTION_KEY = "exception";
 
   @Inject
   NewBookDao bookDao;
   @Inject
   ZimReaderContainer zimReaderContainer;
+  @Inject
+  MountPointProducer mountPointProducer;
+  @Inject
+  FileLogger fileLogger;
 
   @BindView(R2.id.reportButton)
   Button reportButton;
@@ -71,6 +84,9 @@ public class ErrorActivity extends BaseActivity {
   @BindView(R2.id.allowDeviceDetails)
   CheckBox allowDeviceDetailsCheckbox;
 
+  @BindView(R2.id.allowFileSystemDetails)
+  CheckBox allowFileSystemDetailsCheckbox;
+
   private static void killCurrentProcess() {
     android.os.Process.killProcess(android.os.Process.myPid());
     System.exit(10);
@@ -83,33 +99,30 @@ public class ErrorActivity extends BaseActivity {
     Intent callingIntent = getIntent();
 
     Bundle extras = callingIntent.getExtras();
-    Throwable exception = (Throwable) extras.getSerializable("exception");
+    final Throwable exception;
+    if (extras != null && safeContains(extras, EXCEPTION_KEY)) {
+      exception = (Throwable) extras.getSerializable(EXCEPTION_KEY);
+    } else {
+      exception = null;
+    }
 
     reportButton.setOnClickListener(v -> {
 
       Intent emailIntent = new Intent(Intent.ACTION_SEND);
       emailIntent.setType("vnd.android.cursor.dir/email");
-      String[] to = { "android-crash-feedback@kiwix.org" };
-      emailIntent.putExtra(Intent.EXTRA_EMAIL, to);
-      emailIntent.putExtra(Intent.EXTRA_SUBJECT, "Someone has reported a crash");
+      emailIntent.putExtra(Intent.EXTRA_EMAIL, new String[] { "android-crash-feedback@kiwix.org" });
+      emailIntent.putExtra(Intent.EXTRA_SUBJECT, getSubject());
 
-      String body = "Hi Kiwix Developers!\n" +
-        "The Android app crashed, here are some details to help fix it:\n\n";
+      String body = getBody();
 
       if (allowLogsCheckbox.isChecked()) {
-        File appDirectory = new File(Environment.getExternalStorageDirectory() + "/Kiwix");
-        File logFile = new File(appDirectory, "logcat.txt");
-        if (logFile.exists()) {
-          Uri path =
-            FileProvider.getUriForFile(this,
-              getApplicationContext().getPackageName() + ".fileprovider",
-              logFile);
-          emailIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-          emailIntent.putExtra(Intent.EXTRA_STREAM, path);
-        }
+        File file = fileLogger.writeLogFile(this);
+        Uri path = getUriForFile(this, getApplicationContext().getPackageName()+ ".fileprovider", file);
+        emailIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        emailIntent.putExtra(Intent.EXTRA_STREAM, path);
       }
 
-      if (allowCrashCheckbox.isChecked()) {
+      if (allowCrashCheckbox.isChecked() && exception != null) {
         body += "Exception Details:\n\n" +
           toStackTraceString(exception) +
           "\n\n";
@@ -151,8 +164,21 @@ public class ErrorActivity extends BaseActivity {
           + "]\nManufacturer:[" + Build.MANUFACTURER
           + "]\nTime:[" + Build.TIME
           + "]\nAndroid Version:[" + Build.VERSION.RELEASE
+          + "]\nApp Version:[" + getVersionName() + " " + getVersionCode()
           + "]" +
           "\n\n";
+      }
+
+      if (allowFileSystemDetailsCheckbox.isChecked()) {
+        body += "Mount Points\n";
+        for (MountInfo mountInfo : mountPointProducer.produce()) {
+          body += mountInfo + "\n";
+        }
+
+        body += "\nExternal Directories\n";
+        for (File externalFilesDir : ContextCompat.getExternalFilesDirs(this, null)) {
+          body += (externalFilesDir != null ? externalFilesDir.getPath() : "null") + "\n";
+        }
       }
 
       emailIntent.putExtra(Intent.EXTRA_TEXT, body);
@@ -160,7 +186,46 @@ public class ErrorActivity extends BaseActivity {
       startActivityForResult(Intent.createChooser(emailIntent, "Send email..."), 1);
     });
 
-    restartButton.setOnClickListener(v -> restartApp());
+    restartButton.setOnClickListener(v -> onRestartClicked());
+  }
+
+  private boolean safeContains(Bundle extras, String key) {
+    try {
+      return extras.containsKey(key);
+    } catch (RuntimeException ignore) {
+      return false;
+    }
+  }
+
+  private void onRestartClicked() {
+    restartApp();
+  }
+
+  @NotNull protected String getSubject() {
+    return "Someone has reported a crash";
+  }
+
+  @NotNull protected String getBody() {
+    return "Hi Kiwix Developers!\n" +
+      "The Android app crashed, here are some details to help fix it:\n\n";
+  }
+
+  private int getVersionCode() {
+    try {
+      return getPackageManager()
+        .getPackageInfo(getPackageName(), 0).versionCode;
+    } catch (PackageManager.NameNotFoundException e) {
+      throw new RuntimeException(e);
+    }
+  }
+
+  private String getVersionName() {
+    try {
+      return getPackageManager()
+        .getPackageInfo(getPackageName(), 0).versionName;
+    } catch (PackageManager.NameNotFoundException e) {
+      throw new RuntimeException(e);
+    }
   }
 
   private String toStackTraceString(Throwable exception) {

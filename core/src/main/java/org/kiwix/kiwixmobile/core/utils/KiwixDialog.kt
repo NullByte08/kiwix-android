@@ -21,7 +21,6 @@ package org.kiwix.kiwixmobile.core.utils
 import android.net.wifi.WifiConfiguration
 import android.view.View
 import org.kiwix.kiwixmobile.core.R
-import org.kiwix.kiwixmobile.core.zim_manager.fileselect_view.adapter.BooksOnDiskListItem.BookOnDisk
 
 sealed class KiwixDialog(
   val title: Int?,
@@ -34,10 +33,10 @@ sealed class KiwixDialog(
   val getView: (() -> View)? = null
 ) {
 
-  data class DeleteZim(override val args: List<Any>) : KiwixDialog(
+  data class DeleteZims(override val args: List<Any>) : KiwixDialog(
     null, R.string.delete_zim_body, R.string.delete, R.string.no
   ), HasBodyFormatArgs {
-    constructor(bookOnDisk: BookOnDisk) : this(listOf(bookOnDisk.book.title))
+    constructor(zimNameList: String) : this(listOf(zimNameList))
   }
 
   object LocationPermissionRationale : KiwixDialog(
@@ -92,7 +91,14 @@ sealed class KiwixDialog(
     R.string.hotspot_dialog_title,
     R.string.hotspot_dialog_message,
     R.string.go_to_settings,
-    null,
+    R.string.go_to_wifi_settings_label
+  )
+
+  object WiFiOnWhenHostingBooks : KiwixDialog(
+    R.string.wifi_dialog_title,
+    R.string.wifi_dialog_body,
+    positiveMessage = R.string.go_to_wifi_settings_label,
+    negativeMessage = null,
     neutralMessage = R.string.hotspot_dialog_neutral_button
   )
 
@@ -110,16 +116,14 @@ sealed class KiwixDialog(
     R.string.did_you_know,
     R.string.hint_contents_drawer_message,
     R.string.got_it,
-    null,
-    icon = R.drawable.icon_question
+    null
   )
 
   object ExternalLinkPopup : KiwixDialog(
     R.string.external_link_popup_dialog_title,
     R.string.external_link_popup_dialog_message,
-    android.R.string.yes,
-    android.R.string.no,
-    icon = R.drawable.ic_warning,
+    R.string.yes,
+    R.string.no,
     neutralMessage = R.string.do_not_ask_anymore
   )
 
@@ -141,17 +145,15 @@ sealed class KiwixDialog(
   object ClearAllHistory : KiwixDialog(
     R.string.clear_all_history_dialog_title,
     R.string.clear_recent_and_tabs_history_dialog,
-    R.string.yes,
-    R.string.no,
-    icon = R.drawable.ic_warning
+    positiveMessage = R.string.delete,
+    negativeMessage = R.string.cancel
   )
 
   object ClearAllNotes : KiwixDialog(
     R.string.delete_notes_confirmation_msg,
     message = null,
-    positiveMessage = R.string.yes,
-    negativeMessage = R.string.no,
-    icon = R.drawable.ic_warning
+    positiveMessage = R.string.delete,
+    negativeMessage = R.string.cancel
   )
 
   data class OpenCredits(val customGetView: (() -> View)?) : KiwixDialog(
@@ -162,15 +164,15 @@ sealed class KiwixDialog(
     getView = customGetView
   )
 
-  data class ConfirmationAlertDialogFragment(val customMessage: Int) : KiwixDialog(
+  object NotesDiscardConfirmation : KiwixDialog(
     null,
-    customMessage,
+    R.string.confirmation_alert_dialog_message,
     R.string.yes,
     android.R.string.cancel
   )
 
   open class YesNoDialog(
-    title: Int,
+    title: Int?,
     message: Int
   ) : KiwixDialog(title, message, R.string.yes, R.string.no) {
     object StopDownload : YesNoDialog(
@@ -182,22 +184,36 @@ sealed class KiwixDialog(
     )
 
     object OpenInNewTab : YesNoDialog(
-      R.string.open_in_new_tab, R.string.open_in_new_tab
+      null, R.string.open_in_new_tab
     )
   }
 
-  object DeleteHistory : KiwixDialog(
+  object DeleteSelectedHistory : KiwixDialog(
+    R.string.delete_selected_history,
     null,
-    R.string.delete_history,
-    R.string.yes,
-    R.string.no
+    positiveMessage = R.string.delete,
+    negativeMessage = R.string.cancel
   )
 
-  object DeleteBookmarks : KiwixDialog(
+  object DeleteAllHistory : KiwixDialog(
+    R.string.delete_history,
     null,
+    positiveMessage = R.string.delete,
+    negativeMessage = R.string.cancel
+  )
+
+  object DeleteAllBookmarks : KiwixDialog(
     R.string.delete_bookmarks,
-    R.string.yes,
-    R.string.no
+    null,
+    positiveMessage = R.string.delete,
+    negativeMessage = R.string.cancel
+  )
+
+  object DeleteSelectedBookmarks : KiwixDialog(
+    R.string.delete_selected_bookmarks,
+    null,
+    positiveMessage = R.string.delete,
+    negativeMessage = R.string.cancel
   )
 }
 
